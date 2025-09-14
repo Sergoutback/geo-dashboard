@@ -7,16 +7,18 @@ import { store } from './store';
 import Root from './layouts/Root';
 import Dashboard from './pages/Dashboard';
 import App from './App';
+import Countries from './pages/Countries';
 
 import './index.css';
 
 const router = createBrowserRouter([
   {
     path: '/',
-    element: <Root />, // содержит <nav> и <Outlet/>
+    element: <Root />,
     children: [
       { index: true, element: <Dashboard /> },
       { path: 'about', element: <App /> },
+      { path: 'countries', element: <Countries /> },
     ],
   },
 ]);
