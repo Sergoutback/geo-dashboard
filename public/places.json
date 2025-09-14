@@ -1,0 +1,5 @@
+[
+  { "id": 1, "name": "Burj Khalifa", "city": "Dubai", "lat": 25.1972, "lon": 55.2744 },
+  { "id": 2, "name": "Louvre Abu Dhabi", "city": "Abu Dhabi", "lat": 24.5333, "lon": 54.3969 },
+  { "id": 3, "name": "Dubai Frame", "city": "Dubai", "lat": 25.2336, "lon": 55.3003 }
+]
