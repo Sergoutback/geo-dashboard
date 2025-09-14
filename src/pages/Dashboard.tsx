@@ -33,13 +33,26 @@ export default function Dashboard() {
         padding: 24,
         alignItems: 'start',
       }}
-    >
-      {/* ... */}
+    >      
       <section>
         <h2>Map & List</h2>
         <div style={{ height: 420 }}>
-          <MapView points={filtered} />
+        <MapView points={filtered} selectedId={selectedId} />
         </div>
+        <ul>
+          {filtered.map((p) => (
+            <li
+              key={p.id}
+              onClick={() => dispatch(select(p.id))}
+              style={{
+                cursor: 'pointer',
+                fontWeight: selectedId === p.id ? 700 : 400,
+              }}
+            >
+              {p.name} — {p.city}
+            </li>
+          ))}
+        </ul>
       </section>
     </main>
   );

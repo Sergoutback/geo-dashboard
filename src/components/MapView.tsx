@@ -6,23 +6,31 @@ import VectorLayer from 'ol/layer/Vector';
 import OSM from 'ol/source/OSM';
 import VectorSource from 'ol/source/Vector';
 import { fromLonLat } from 'ol/proj';
-import { Feature } from 'ol';
+import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
 import { Style, Circle as CircleStyle, Fill, Stroke, Text } from 'ol/style';
+import { isEmpty as isExtentEmpty } from 'ol/extent';
 import 'ol/ol.css';
 
-type Pt = { id:number; name:string; lat:number; lon:number };
+type Pt = { id: number; name: string; lat: number; lon: number };
 
-export default function MapView({ points }: { points: Pt[] }) {
+export default function MapView({
+  points,
+  selectedId,
+}: {
+  points: Pt[];
+  selectedId?: number;
+}) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapObj = useRef<Map | null>(null);
   const vectorSrc = useRef(new VectorSource());
+  const vectorLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
   
   useEffect(() => {
     if (!mapRef.current) return;
 
     const base = new TileLayer({
-      source: new OSM({        
+      source: new OSM({
         attributions:
           '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
       }),
@@ -30,29 +38,31 @@ export default function MapView({ points }: { points: Pt[] }) {
 
     const vector = new VectorLayer({
       source: vectorSrc.current,
-      style: (f) =>
-        new Style({
+      style: (f) => {
+        const isSel = f.get('id') === selectedId;
+        return new Style({
           image: new CircleStyle({
-            radius: 4,
-            fill: new Fill({ color: '#1f76d1' }),
+            radius: isSel ? 7 : 4,
+            fill: new Fill({ color: isSel ? '#e63946' : '#1f76d1' }),
             stroke: new Stroke({ color: '#fff', width: 1.5 }),
           }),
           text: new Text({
             text: String(f.get('name') ?? ''),
             offsetX: 10,
-            offsetY: 0,
             font: '12px system-ui, sans-serif',
             fill: new Fill({ color: '#222' }),
             stroke: new Stroke({ color: 'rgba(255,255,255,0.8)', width: 3 }),
           }),
-        }),
+        });
+      },
     });
+    vectorLayerRef.current = vector;
 
     mapObj.current = new Map({
       target: mapRef.current,
       layers: [base, vector],
       view: new View({
-        center: fromLonLat([55.27, 25.20]),
+        center: fromLonLat([55.27, 25.2]), // Dubai
         zoom: 10,
       }),
     });
@@ -61,6 +71,7 @@ export default function MapView({ points }: { points: Pt[] }) {
       mapObj.current?.setTarget(undefined);
       mapObj.current = null;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   
   useEffect(() => {
@@ -75,9 +86,36 @@ export default function MapView({ points }: { points: Pt[] }) {
       });
       return feat;
     });
-
     src.addFeatures(feats);
-  }, [points]);
+    
+    vectorLayerRef.current?.changed();
+  }, [points, selectedId]);
+  
+  useEffect(() => {
+    const map = mapObj.current;
+    if (!map) return;
+    const view = map.getView();
+
+    if (selectedId != null) {
+      const feat = vectorSrc.current
+        .getFeatures()
+        .find((f) => f.get('id') === selectedId);
+      if (feat) {
+        const geom = feat.getGeometry() as Point;
+        const coord = geom.getCoordinates();
+        view.animate({
+          center: coord,
+          zoom: Math.max(view.getZoom() ?? 10, 13),
+          duration: 500,
+        });
+      }
+    } else {
+      const extent = vectorSrc.current.getExtent();
+      if (!isExtentEmpty(extent)) {
+        view.fit(extent, { padding: [40, 40, 40, 40], maxZoom: 12, duration: 500 });
+      }
+    }
+  }, [selectedId, points]);
 
   return (
     <div
