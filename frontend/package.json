@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{ts,tsx}\" --max-warnings=0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,md}\"",
-    "test": "vitest --environment=jsdom"
+    "test": "vitest",
+    "test:ci": "vitest --run"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.9.0",
@@ -38,6 +39,6 @@
     "typescript-eslint": "^8.39.1",
     "vite": "^7.1.2",
     "vitest": "^3.2.4"
-  },
-  "test": "vitest --environment=jsdom"
-}
+  }
+} 
+

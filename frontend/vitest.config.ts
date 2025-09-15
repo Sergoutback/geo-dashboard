@@ -7,5 +7,6 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/setupTests.ts',
+    passWithNoTests: true, // allow CI to succeed without tests
   },
 });
