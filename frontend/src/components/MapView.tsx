@@ -8,8 +8,10 @@ import VectorSource from 'ol/source/Vector';
 import { fromLonLat } from 'ol/proj';
 import Feature from 'ol/Feature';
 import Point from 'ol/geom/Point';
+import LineString from 'ol/geom/LineString';
 import { Style, Circle as CircleStyle, Fill, Stroke, Text } from 'ol/style';
 import { isEmpty as isExtentEmpty } from 'ol/extent';
+import { defaults as defaultControls } from 'ol/control';
 import 'ol/ol.css';
 
 type Pt = { id: number; name: string; lat: number; lon: number };
@@ -17,24 +19,25 @@ type Pt = { id: number; name: string; lat: number; lon: number };
 export default function MapView({
   points,
   selectedId,
+  routeCoords,
 }: {
   points: Pt[];
   selectedId?: number;
+  routeCoords?: [number, number][];
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapObj = useRef<Map | null>(null);
+
   const vectorSrc = useRef(new VectorSource());
   const vectorLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
-  
+
+  const routeSrc = useRef(new VectorSource());
+  const routeLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
+
   useEffect(() => {
     if (!mapRef.current) return;
 
-    const base = new TileLayer({
-      source: new OSM({
-        attributions:
-          '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>',
-      }),
-    });
+    const base = new TileLayer({ source: new OSM() });
 
     const vector = new VectorLayer({
       source: vectorSrc.current,
@@ -43,71 +46,88 @@ export default function MapView({
         return new Style({
           image: new CircleStyle({
             radius: isSel ? 7 : 4,
-            fill: new Fill({ color: isSel ? '#e63946' : '#1f76d1' }),
+            fill: new Fill({ color: isSel ? '#D92D20' : '#2563EB' }),
             stroke: new Stroke({ color: '#fff', width: 1.5 }),
           }),
           text: new Text({
             text: String(f.get('name') ?? ''),
             offsetX: 10,
-            font: '12px system-ui, sans-serif',
-            fill: new Fill({ color: '#222' }),
-            stroke: new Stroke({ color: 'rgba(255,255,255,0.8)', width: 3 }),
+            font: '12px system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+            fill: new Fill({ color: '#1f2937' }),
+            stroke: new Stroke({ color: 'rgba(255,255,255,0.85)', width: 3 }),
           }),
         });
       },
     });
     vectorLayerRef.current = vector;
 
+    const routeLayer = new VectorLayer({
+      source: routeSrc.current,
+      style: new Style({ stroke: new Stroke({ color: '#16a34a', width: 4 }) }),
+    });
+    routeLayerRef.current = routeLayer;
+
     mapObj.current = new Map({
       target: mapRef.current,
-      layers: [base, vector],
-      view: new View({
-        center: fromLonLat([55.27, 25.2]), // Dubai
-        zoom: 10,
-      }),
+      layers: [base, vector, routeLayer],
+      controls: defaultControls({ zoom: true }),
+      view: new View({ center: fromLonLat([55.27, 25.2]), zoom: 10 }),
     });
 
+    // ensure correct initial size after layout
+    requestAnimationFrame(() => mapObj.current?.updateSize());
+
+    // keep up with container size changes
+    let ro: ResizeObserver | undefined;
+    if ('ResizeObserver' in window && mapRef.current) {
+      ro = new ResizeObserver(() => mapObj.current?.updateSize());
+      ro.observe(mapRef.current);
+    }
+
+    const onWindowResize = () => mapObj.current?.updateSize();
+    window.addEventListener('resize', onWindowResize);
+
     return () => {
+      ro?.disconnect();
+      window.removeEventListener('resize', onWindowResize);
       mapObj.current?.setTarget(undefined);
       mapObj.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  
+
+  // restyle markers when selectedId changes (style depends on it)
+  useEffect(() => {
+    vectorLayerRef.current?.changed();
+  }, [selectedId]);
+
+  // points update
   useEffect(() => {
     const src = vectorSrc.current;
     src.clear();
-
-    const feats = points.map((p) => {
-      const feat = new Feature({
-        geometry: new Point(fromLonLat([p.lon, p.lat])),
-        id: p.id,
-        name: p.name,
-      });
-      return feat;
-    });
-    src.addFeatures(feats);
-    
+    src.addFeatures(
+      points.map(
+        (p) =>
+          new Feature({
+            geometry: new Point(fromLonLat([p.lon, p.lat])),
+            id: p.id,
+            name: p.name,
+          })
+      )
+    );
     vectorLayerRef.current?.changed();
-  }, [points, selectedId]);
-  
+  }, [points]);
+
+  // camera handling
   useEffect(() => {
     const map = mapObj.current;
     if (!map) return;
     const view = map.getView();
 
     if (selectedId != null) {
-      const feat = vectorSrc.current
-        .getFeatures()
-        .find((f) => f.get('id') === selectedId);
+      const feat = vectorSrc.current.getFeatures().find((f) => f.get('id') === selectedId);
       if (feat) {
-        const geom = feat.getGeometry() as Point;
-        const coord = geom.getCoordinates();
-        view.animate({
-          center: coord,
-          zoom: Math.max(view.getZoom() ?? 10, 13),
-          duration: 500,
-        });
+        const coord = (feat.getGeometry() as Point).getCoordinates();
+        view.animate({ center: coord, zoom: Math.max(view.getZoom() ?? 10, 13), duration: 500 });
       }
     } else {
       const extent = vectorSrc.current.getExtent();
@@ -116,6 +136,56 @@ export default function MapView({
       }
     }
   }, [selectedId, points]);
+
+  // route drawing (single effect with abort)
+  useEffect(() => {
+    const src = routeSrc.current;
+    src.clear();
+
+    if (!routeCoords || routeCoords.length < 2) {
+      routeLayerRef.current?.changed();
+      return;
+    }
+
+    const drawLine = (lonlat: [number, number][]) => {
+      const xy = lonlat.map(([lon, lat]) => fromLonLat([lon, lat]));
+      const line = new LineString(xy);
+      const feat = new Feature({ geometry: line });
+      src.addFeature(feat);
+
+      const map = mapObj.current;
+      if (map) {
+        const view = map.getView();
+        const extent = line.getExtent();
+        view.fit(extent, { padding: [40, 40, 40, 40], duration: 500, maxZoom: 14 });
+      }
+      routeLayerRef.current?.changed();
+    };
+
+    const ctrl = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const path = routeCoords.map(([lon, lat]) => `${lon},${lat}`).join(';');
+        const url = `https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson`;
+        const res = await fetch(url, { signal: ctrl.signal });
+        if (!res.ok) throw new Error(String(res.status));
+        const json = await res.json();
+        if (cancelled) return;
+        const coords = json?.routes?.[0]?.geometry?.coordinates as [number, number][] | undefined;
+        if (!coords || coords.length < 2) throw new Error('no geometry');
+        drawLine(coords); // OSRM returns [lon,lat]
+      } catch {
+        if (!cancelled) drawLine(routeCoords);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, [routeCoords]);
 
   return (
     <div

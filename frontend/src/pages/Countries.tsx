@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useDeferredValue, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import MapView from '../components/MapView';
 
 type Country = {
   cca2: string;
@@ -6,181 +8,205 @@ type Country = {
   region: string;
   population: number;
   flags: { svg?: string; png?: string; alt?: string };
+  latlng?: [number, number]; // [lat, lon]
 };
 
 const API =
-  'https://restcountries.com/v3.1/all?fields=name,cca2,region,flags,population';
+  'https://restcountries.com/v3.1/all?fields=name,cca2,region,flags,population,latlng';
 
 export default function Countries() {
   const [data, setData] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [q, setQ] = useState('');
-  const [region, setRegion] = useState('All');
+  const [sp, setSp] = useSearchParams();
+  const [q, setQ] = useState(sp.get('q') ?? '');
+  const [region, setRegion] = useState(sp.get('region') ?? 'All');
+  const dq = useDeferredValue(q);
 
-  useEffect(() => {
-    const ctrl = new AbortController();
-    (async () => {
-      try {
-        setLoading(true);
-        const res = await fetch(API, { signal: ctrl.signal });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = (await res.json()) as Country[];
-        
-        json.sort((a, b) => a.name.common.localeCompare(b.name.common));
-        setData(json);
-        setError(null);
-      } catch (e: unknown) {
-  
-    if (e instanceof DOMException && e.name === 'AbortError') return;      
-      const msg = e instanceof Error ? e.message : 'Failed to load';
-      setError(msg);
-    }
-    finally {
-        setLoading(false);
-      }
-    })();
-    return () => ctrl.abort();
-  }, []);
+  const [selected, setSelected] = useState<Country | null>(null);
+  const sideRef = useRef<HTMLDivElement | null>(null);
 
-  const regions = useMemo(() => {
-  const set = new Set<string>(data.map(c => c.region).filter(Boolean) as string[]);
-  return ['All', ...Array.from(set).sort()];
-}, [data]);
-
-useEffect(() => {
-  const ctrl = new AbortController();
-  (async () => {
+  async function fetchAll(signal?: AbortSignal) {
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await fetch(API, { signal: ctrl.signal });
+      const res = await fetch(API, { signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = (await res.json()) as Country[];
       json.sort((a, b) => a.name.common.localeCompare(b.name.common));
       setData(json);
+      localStorage.setItem('countries_cache_v1', JSON.stringify(json));
       setError(null);
-    } catch (e: unknown) {
+    } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return;
-      const msg = e instanceof Error ? e.message : 'Failed to load';
-      setError(msg);
+      setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
       setLoading(false);
     }
-  })();
-  return () => ctrl.abort();
-}, []);
+  }
+  
+  useEffect(() => {
+    const cached = localStorage.getItem('countries_cache_v1');
+    if (cached) {
+      try {
+        const arr = JSON.parse(cached) as Country[];
+        arr.sort((a, b) => a.name.common.localeCompare(b.name.common));
+        setData(arr);
+        setLoading(false);
+      } catch { /* ignore */ }
+    }
 
+    const ctrl = new AbortController();
+    fetchAll(ctrl.signal);
+    return () => ctrl.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const regions = useMemo(() => {
+    const set = new Set<string>(data.map((c) => c.region).filter(Boolean) as string[]);
+    return ['All', ...Array.from(set).sort()];
+  }, [data]);
+  
+  useEffect(() => {
+    const next = new URLSearchParams(sp);
+
+    if (dq) {
+      next.set('q', dq);
+    } else {
+      next.delete('q');
+    }
+
+    if (region !== 'All') {
+      next.set('region', region);
+    } else {
+      next.delete('region');
+    }
+
+    setSp(next, { replace: true });
+  }, [dq, region]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
-    const qn = q.trim().toLowerCase();
+    const qn = dq.trim().toLowerCase();
     return data.filter((c) => {
-      const byRegion = region === 'All' || c.region === region;
-      const byName =
-        !qn || c.name.common.toLowerCase().includes(qn);
-      return byRegion && byName;
+      const passRegion = region === 'All' || c.region === region;
+      const passName = !qn || c.name.common.toLowerCase().includes(qn);
+      return passRegion && passName;
     });
-  }, [data, q, region]);
+  }, [data, dq, region]);
 
   return (
-    <main style={{ padding: 24 }}>
-      <h2 style={{ marginBottom: 16 }}>Countries</h2>
-      
-      <div
-        style={{
-          display: 'flex',
-          gap: 12,
-          flexWrap: 'wrap',
-          marginBottom: 16,
-          alignItems: 'center',
-        }}
-      >
+    <section>
+      <h1 style={{ margin: '0 0 16px' }}>Countries</h1>
+
+      <div className="controls-row">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search by name…"
           aria-label="Search countries"
-          style={{
-            padding: 8,
-            minWidth: 220,
-            border: '1px solid #ddd',
-            borderRadius: 6,
-          }}
+          className="input"
+          style={{ minWidth: 220 }}
         />
         <select
           value={region}
           onChange={(e) => setRegion(e.target.value)}
           aria-label="Filter by region"
-          style={{ padding: 8, border: '1px solid #ddd', borderRadius: 6 }}
+          className="input"
         >
           {regions.map((r) => (
-            <option key={r} value={r}>
-              {r}
-            </option>
+            <option key={r} value={r}>{r}</option>
           ))}
         </select>
 
-        <span style={{ marginLeft: 'auto', color: '#666' }}>
+        <button className="btn" onClick={() => fetchAll()}>
+          Refresh from API
+        </button>
+
+        <span className="muted" style={{ marginLeft: 'auto' }}>
           Showing {filtered.length} / {data.length}
         </span>
       </div>
-      
-      {loading && <p>Loading countries…</p>}
-      {error && (
-        <p style={{ color: 'crimson' }}>
-          Error: {error}. Try refresh (Ctrl+R).
-        </p>
-      )}
-      
+
+      {loading && <SkeletonGrid count={8} />}
+      {error && <p className="error">Error: {error}. Try refresh (Ctrl/Cmd+R).</p>}
+
       {!loading && !error && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns:
-              'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: 16,
-          }}
-        >
-          {filtered.map((c) => (
-            <article
-              key={c.cca2}
-              style={{
-                border: '1px solid #eee',
-                borderRadius: 10,
-                overflow: 'hidden',
-                background: '#fff',
-                boxShadow:
-                  '0 1px 2px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04)',
-              }}
-            >
-              {c.flags?.svg || c.flags?.png ? (
-                <img
-                  src={c.flags.svg ?? c.flags.png!}
-                  alt={c.flags.alt ?? `${c.name.common} flag`}
-                  style={{
-                    width: '100%',
-                    height: 120,
-                    objectFit: 'cover',
-                    display: 'block',
-                    background: '#f7f7f7',
-                  }}
-                  loading="lazy"
-                />
-              ) : null}
-              <div style={{ padding: 12 }}>
-                <h3 style={{ margin: '0 0 6px' }}>{c.name.common}</h3>
-                <div style={{ fontSize: 14, color: '#555' }}>
-                  <div>Region: {c.region || '—'}</div>
-                  <div>
-                    Population:{' '}
-                    {c.population.toLocaleString(undefined)}
+        <div className="countries-layout">
+          <div className="grid">
+            {filtered.map((c) => (
+              <article
+                key={c.cca2}
+                className="card"
+                onClick={() => {
+                  setSelected(c);                  
+                  setTimeout(() => sideRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+                }}
+                style={{ cursor: 'pointer' }}
+                title="Show on map"
+              >
+                {c.flags?.svg || c.flags?.png ? (
+                  <img
+                    src={c.flags.svg ?? c.flags.png!}
+                    alt={c.flags.alt ?? `${c.name.common} flag`}
+                    className="card-img"
+                    loading="lazy"
+                  />
+                ) : null}
+                <div className="card-body">
+                  <h3 className="card-title">{c.name.common}</h3>
+                  <div className="card-meta">
+                    <div>Region: {c.region || '—'}</div>
+                    <div>Population: {c.population.toLocaleString()}</div>
                   </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            ))}
+            {filtered.length === 0 && (
+              <div className="empty">Nothing found. Try another query or region.</div>
+            )}
+          </div>
+
+          <aside ref={sideRef} className="country-map-card">
+            <h3 style={{ marginTop: 0 }}>On the map</h3>
+            <div className="map-panel">
+              <MapView
+                points={
+                  selected?.latlng
+                    ? [{
+                        id: 1,
+                        name: selected.name.common,
+                        lat: selected.latlng[0],
+                        lon: selected.latlng[1],
+                      }]
+                    : []
+                }
+                selectedId={1}
+              />
+            </div>
+            <div className="muted" style={{ marginTop: 8 }}>
+              {selected
+                ? `Selected: ${selected.name.common} ${selected.latlng ? `(${selected.latlng[0].toFixed(2)}, ${selected.latlng[1].toFixed(2)})` : ''}`
+                : 'Click a country card to preview its location.'}
+            </div>
+          </aside>
         </div>
       )}
-    </main>
+    </section>
+  );
+}
+
+function SkeletonGrid({ count = 6 }: { count?: number }) {
+  return (
+    <div className="grid">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="card skeleton">
+          <div className="skeleton-img" />
+          <div className="card-body">
+            <div className="sk-line" />
+            <div className="sk-line short" />
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
