@@ -34,6 +34,9 @@ export default function MapView({
   const routeSrc = useRef(new VectorSource());
   const routeLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
 
+  // keep selectedId out of init-effect closure
+  const selectedIdRef = useRef<number | undefined>(selectedId);
+
   useEffect(() => {
     if (!mapRef.current) return;
 
@@ -42,7 +45,7 @@ export default function MapView({
     const vector = new VectorLayer({
       source: vectorSrc.current,
       style: (f) => {
-        const isSel = f.get('id') === selectedId;
+        const isSel = f.get('id') === selectedIdRef.current;
         return new Style({
           image: new CircleStyle({
             radius: isSel ? 7 : 4,
@@ -95,8 +98,9 @@ export default function MapView({
     };
   }, []);
 
-  // restyle markers when selectedId changes (style depends on it)
+  // update ref + restyle markers when selection changes
   useEffect(() => {
+    selectedIdRef.current = selectedId;
     vectorLayerRef.current?.changed();
   }, [selectedId]);
 
