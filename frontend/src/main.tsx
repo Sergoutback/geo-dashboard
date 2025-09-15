@@ -6,8 +6,8 @@ import { store } from './store';
 
 import Root from './layouts/Root';
 import Dashboard from './pages/Dashboard';
-import About from './pages/About';
 import Countries from './pages/Countries';
+import About from './pages/About';
 
 import './index.css';
 
@@ -17,8 +17,8 @@ const router = createBrowserRouter([
     element: <Root />,
     children: [
       { index: true, element: <Dashboard /> },
-      { path: 'about', element: <About /> },
       { path: 'countries', element: <Countries /> },
+      { path: 'about', element: <About /> },
     ],
   },
 ]);

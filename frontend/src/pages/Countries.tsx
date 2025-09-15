@@ -83,7 +83,7 @@ export default function Countries() {
     }
 
     setSp(next, { replace: true });
-  }, [dq, region]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dq, region]);
 
   const filtered = useMemo(() => {
     const qn = dq.trim().toLowerCase();

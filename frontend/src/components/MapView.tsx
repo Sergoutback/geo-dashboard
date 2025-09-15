@@ -34,7 +34,7 @@ export default function MapView({
   const routeSrc = useRef(new VectorSource());
   const routeLayerRef = useRef<VectorLayer<VectorSource> | null>(null);
 
-  // keep selectedId out of init-effect closure
+  // keep selectedId out of the init-effect closure
   const selectedIdRef = useRef<number | undefined>(selectedId);
 
   useEffect(() => {
@@ -77,16 +77,15 @@ export default function MapView({
       view: new View({ center: fromLonLat([55.27, 25.2]), zoom: 10 }),
     });
 
-    // ensure correct initial size after layout
+    // correct initial size after layout
     requestAnimationFrame(() => mapObj.current?.updateSize());
 
-    // keep up with container size changes
+    // resize handling
     let ro: ResizeObserver | undefined;
     if ('ResizeObserver' in window && mapRef.current) {
       ro = new ResizeObserver(() => mapObj.current?.updateSize());
       ro.observe(mapRef.current);
     }
-
     const onWindowResize = () => mapObj.current?.updateSize();
     window.addEventListener('resize', onWindowResize);
 
